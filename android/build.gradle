@@ -1,0 +1,109 @@
+apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
+
+// Natives (.so files) are unpacked from these jars into android/libs before packaging.
+configurations { natives }
+
+android {
+    namespace = 'com.example.slingshot'
+    compileSdk = 34
+
+    defaultConfig {
+        applicationId = 'com.example.slingshot'
+        minSdk = 24
+        targetSdk = 34
+        versionCode = 1
+        versionName = project.version
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            res.srcDirs = ['res']
+            assets.srcDirs = ['assets']
+            jniLibs.srcDirs = ['libs']
+        }
+    }
+
+    // Optional release signing. Create keystore.properties in the project root (never commit it):
+    //   storeFile=/absolute/path/to/release.jks
+    //   storePassword=...
+    //   keyAlias=...
+    //   keyPassword=...
+    def keystoreFile = rootProject.file('keystore.properties')
+    def hasReleaseKey = keystoreFile.exists()
+    if (hasReleaseKey) {
+        def keystoreProps = new Properties()
+        keystoreFile.withInputStream { keystoreProps.load(it) }
+        signingConfigs {
+            release {
+                storeFile = file(keystoreProps['storeFile'])
+                storePassword = keystoreProps['storePassword']
+                keyAlias = keystoreProps['keyAlias']
+                keyPassword = keystoreProps['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = false
+            if (hasReleaseKey) signingConfig = signingConfigs.release
+        }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
+dependencies {
+    implementation project(':core')
+    api "com.badlogicgames.gdx:gdx-backend-android:$gdxVersion"
+
+    natives "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-armeabi-v7a"
+    natives "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-arm64-v8a"
+    natives "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-x86"
+    natives "com.badlogicgames.gdx:gdx-platform:$gdxVersion:natives-x86_64"
+
+    natives "com.badlogicgames.gdx:gdx-box2d-platform:$gdxVersion:natives-armeabi-v7a"
+    natives "com.badlogicgames.gdx:gdx-box2d-platform:$gdxVersion:natives-arm64-v8a"
+    natives "com.badlogicgames.gdx:gdx-box2d-platform:$gdxVersion:natives-x86"
+    natives "com.badlogicgames.gdx:gdx-box2d-platform:$gdxVersion:natives-x86_64"
+}
+
+// Runs on every build: extracts the native libraries into the folders AGP packages from.
+tasks.register('copyAndroidNatives') {
+    doFirst {
+        file('libs/armeabi-v7a/').mkdirs()
+        file('libs/arm64-v8a/').mkdirs()
+        file('libs/x86_64/').mkdirs()
+        file('libs/x86/').mkdirs()
+
+        configurations.natives.copy().files.each { jar ->
+            def outputDir = null
+            if (jar.name.endsWith('natives-armeabi-v7a.jar')) outputDir = file('libs/armeabi-v7a')
+            if (jar.name.endsWith('natives-arm64-v8a.jar')) outputDir = file('libs/arm64-v8a')
+            if (jar.name.endsWith('natives-x86_64.jar')) outputDir = file('libs/x86_64')
+            if (jar.name.endsWith('natives-x86.jar')) outputDir = file('libs/x86')
+            if (outputDir != null) {
+                copy {
+                    from zipTree(jar)
+                    into outputDir
+                    include '*.so'
+                }
+            }
+        }
+    }
+}
+
+tasks.matching { it.name.contains('merge') && it.name.contains('JniLibFolders') }.configureEach { task ->
+    task.dependsOn 'copyAndroidNatives'
+}
